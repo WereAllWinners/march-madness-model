@@ -148,6 +148,18 @@ def build_game_level_dataset(
     n_missing_B = games[[f"{c}_B" for c in stat_cols if f"{c}_B" in games.columns]].isna().all(axis=1).sum()
     logger.info(f"  Stats merge: {n_total} games, {n_missing_A} missing team_A stats, {n_missing_B} missing team_B stats")
 
+    # ── 7a. Add rest days before tournament ─────────────────────────────────
+    slug_to_canonical = _build_slug_to_canonical(seasons, bracket_to_canonical)
+    rest_map = _compute_rest_days(seasons, slug_to_canonical)
+    games["rest_days_A"] = games.apply(
+        lambda r: rest_map.get((r["team_A_name"], int(r["season"])), float("nan")), axis=1
+    ).astype("float32")
+    games["rest_days_B"] = games.apply(
+        lambda r: rest_map.get((r["team_B_name"], int(r["season"])), float("nan")), axis=1
+    ).astype("float32")
+    n_with_rest = games["rest_days_A"].notna().sum()
+    logger.info(f"  Rest days computed for {n_with_rest}/{len(games)} tournament games")
+
     # ── 7. Optionally add regular season games ──────────────────────────────
     if include_regular_season:
         reg_games = _build_reg_season_rows(seasons, stats_sub, stat_cols, bracket_to_canonical, rng)
@@ -165,6 +177,7 @@ def build_game_level_dataset(
         "game_id", "season", "is_tournament", "tournament_round",
         "team_A_id", "team_B_id", "team_A_name", "team_B_name",
         "team_A_win", "score_A", "score_B", "margin", "seed_A", "seed_B",
+        "rest_days_A", "rest_days_B",
     ]
     stat_cols_A = [f"{c}_A" for c in TEAM_STAT_COLS if f"{c}_A" in games.columns]
     stat_cols_B = [f"{c}_B" for c in TEAM_STAT_COLS if f"{c}_B" in games.columns]
@@ -248,6 +261,8 @@ def _build_reg_season_rows(
         + rows["team_A_name"].str.replace(" ", "_") + "_vs_"
         + rows["team_B_name"].str.replace(" ", "_")
     )
+    rows["rest_days_A"] = float("nan")
+    rows["rest_days_B"] = float("nan")
 
     # Merge season stats for team_A
     rows = rows.merge(
@@ -296,6 +311,43 @@ def _build_slug_to_canonical(seasons: list[int], bracket_to_canonical: dict) -> 
                 canonical    = bracket_to_canonical.get(bracket_name, bracket_name)
                 slug_to_canonical[slug] = canonical
     return slug_to_canonical
+
+
+def _compute_rest_days(seasons: list[int], slug_to_canonical: dict) -> dict:
+    """
+    Computes days of rest before tournament for each team-year.
+    rest_days = days between last non-NCAA game and first NCAA game in schedule.
+    Returns dict: (canonical_name, year) -> rest_days (int).
+    """
+    sr_dir = Path(__file__).parent.parent.parent / "data" / "raw" / "sports_ref" / "schedules"
+    rest_map = {}
+
+    for year in seasons:
+        sched_dir = sr_dir / str(year)
+        if not sched_dir.exists():
+            continue
+        for parquet_path in sched_dir.glob("*.parquet"):
+            slug = parquet_path.stem
+            canonical = slug_to_canonical.get(slug)
+            if canonical is None:
+                continue
+            try:
+                df = pd.read_parquet(parquet_path)
+                if df.empty or "date" not in df.columns or "game_type" not in df.columns:
+                    continue
+                df["date_parsed"] = pd.to_datetime(df["date"], errors="coerce")
+                df = df.dropna(subset=["date_parsed"])
+                pre  = df[df["game_type"].isin(["REG", "CTOURN"])]
+                ncaa = df[df["game_type"] == "NCAA"]
+                if pre.empty or ncaa.empty:
+                    continue
+                rest = (ncaa["date_parsed"].min() - pre["date_parsed"].max()).days
+                if 0 <= rest <= 30:
+                    rest_map[(canonical, year)] = rest
+            except Exception:
+                continue
+
+    return rest_map
 
 
 _fuzzy_cache: dict[str, str | None] = {}

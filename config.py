@@ -138,6 +138,8 @@ FEATURE_COLS = [
     "style_cluster_A",
     "style_cluster_B",
     "style_cluster_interaction",
+    # Fatigue
+    "rest_days_diff",             # days of rest before tourney: A - B
     # Tournament-specific
     "seed_diff",
     "seed_upset_flag",

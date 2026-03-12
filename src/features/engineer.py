@@ -147,6 +147,9 @@ def _compute_differentials(df: pd.DataFrame) -> pd.DataFrame:
     diff("W_pct_A", "W_pct_B", "W_pct_diff")
     diff("SOS_A", "SOS_B", "SOS_diff")
 
+    # --- Fatigue ---
+    diff("rest_days_A", "rest_days_B", "rest_days_diff")
+
     return df
 
 

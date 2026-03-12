@@ -47,8 +47,40 @@ def render_bracket_simulator():
     with col2:
         run_btn = st.button("▶ Run Simulation", type="primary", use_container_width=True)
 
+    # ── Injury / Lineup Adjustments ──────────────────────────────────────────
+    injury_adjustments = {}
+    with st.expander("⚕️ Injury / Lineup Adjustments (optional)"):
+        st.caption(
+            "Adjust team ratings before running the simulation. "
+            "Use negative AdjO to reflect an offensive player being out; "
+            "positive AdjD to reflect a defensive player being out (higher AdjD = worse defense)."
+        )
+        if torvik is not None and not torvik.empty:
+            teams_list = sorted(torvik["torvik_name"].dropna().unique().tolist())
+            selected_teams = st.multiselect("Teams to adjust", teams_list, key="injury_teams")
+            for team in selected_teams:
+                c1, c2, c3 = st.columns([2, 1, 1])
+                with c1:
+                    st.markdown(f"**{team}**")
+                with c2:
+                    adj_o = st.slider(
+                        "Offense (AdjO)", -20, 10, 0, 1,
+                        key=f"inj_o_{team}",
+                        help="Subtract points from offensive rating (negative = weaker offense)",
+                    )
+                with c3:
+                    adj_d = st.slider(
+                        "Defense (AdjD)", -10, 20, 0, 1,
+                        key=f"inj_d_{team}",
+                        help="Add points to defensive rating (positive = weaker defense)",
+                    )
+                if adj_o != 0 or adj_d != 0:
+                    injury_adjustments[team] = {"AdjO_delta": float(adj_o), "AdjD_delta": float(adj_d)}
+        else:
+            st.info("Load Torvik data to enable injury adjustments.")
+
     if run_btn:
-        sim_results = _run_simulation(torvik, fm, artifacts, n_sims)
+        sim_results = _run_simulation(torvik, fm, artifacts, n_sims, injury_adjustments or None)
 
     if sim_results is None or sim_results.empty:
         st.info(
@@ -71,7 +103,7 @@ def render_bracket_simulator():
     _render_bracket_score(sim_results)
 
 
-def _run_simulation(torvik, fm, artifacts, n_sims):
+def _run_simulation(torvik, fm, artifacts, n_sims, injury_adjustments=None):
     """Runs Monte Carlo simulation with progress bar."""
     from src.simulation.bracket import build_bracket_2026
     from src.simulation.monte_carlo import run_simulation
@@ -111,6 +143,7 @@ def _run_simulation(torvik, fm, artifacts, n_sims):
             artifacts=artifacts,
             n_sims=n_sims,
             progress_callback=update_progress,
+            injury_adjustments=injury_adjustments,
         )
         progress_bar.progress(1.0, text="Complete!")
         status_text.success(f"✅ {n_sims:,} simulations complete!")

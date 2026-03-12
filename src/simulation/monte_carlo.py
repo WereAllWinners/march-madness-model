@@ -32,6 +32,7 @@ def run_simulation(
     n_sims: int = N_SIMULATIONS,
     seed: int = RANDOM_SEED,
     progress_callback=None,  # optional callable(sim_idx, n_sims)
+    injury_adjustments: dict = None,  # team_name → {"AdjO_delta": float, "AdjD_delta": float}
 ) -> pd.DataFrame:
     """
     Main simulation entry point.
@@ -61,7 +62,7 @@ def run_simulation(
     }
 
     # Pre-compute win probabilities for all matchup pairs (avoids 630k predict_proba calls)
-    live_features = _build_live_feature_lookup(feature_matrix_df, all_teams)
+    live_features = _build_live_feature_lookup(feature_matrix_df, all_teams, injury_adjustments)
     prob_cache = _precompute_prob_cache(all_teams, live_features, artifacts)
 
     logger.info(f"Starting {n_sims:,} tournament simulations...")
@@ -194,6 +195,7 @@ def build_upset_probability_matrix(results_df: pd.DataFrame) -> pd.DataFrame:
 def _build_live_feature_lookup(
     feature_matrix_df: pd.DataFrame,
     teams: list,
+    injury_adjustments: dict = None,
 ) -> dict:
     """
     Pre-builds a dict: (team_A_id, team_B_id) → feature vector (np.ndarray)
@@ -224,6 +226,19 @@ def _build_live_feature_lookup(
     # For missing pairs: construct synthetic feature vector from team stats
     # using a separate lookup of team-level stats
     team_stats = _get_team_stats_2026(feature_matrix_df, team_ids)
+
+    # Apply injury adjustments (modify stats before building feature vectors)
+    if injury_adjustments:
+        name_to_id = {t.name: t.kaggle_id for t in teams}
+        for team_name, adj in injury_adjustments.items():
+            tid = name_to_id.get(team_name)
+            if tid and tid in team_stats:
+                stats = dict(team_stats[tid])
+                if "AdjO_delta" in adj:
+                    stats["AdjO"] = float(stats.get("AdjO") or 0) + adj["AdjO_delta"]
+                if "AdjD_delta" in adj:
+                    stats["AdjD"] = float(stats.get("AdjD") or 0) + adj["AdjD_delta"]
+                team_stats[tid] = stats
 
     for a_id, b_id in itertools.combinations(team_ids, 2):
         if (a_id, b_id) not in lookup and (b_id, a_id) not in lookup:
@@ -307,6 +322,7 @@ def _construct_feature_vector(
         "style_cluster_A":        get(stats_A, "style_cluster", 0.0),
         "style_cluster_B":        get(stats_B, "style_cluster", 0.0),
         "style_cluster_interaction": get(stats_A, "style_cluster", 0.0) * 5 + get(stats_B, "style_cluster", 0.0),
+        "rest_days_diff":         0.0,  # neutral assumption pre-tournament
         "seed_diff":              0.0,  # filled by caller using actual seeds
         "seed_upset_flag":        0.0,
     }
