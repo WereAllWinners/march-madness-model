@@ -1,0 +1,69 @@
+Seed,team_name,conf
+Z01,Duke,ACC
+Z02,Connecticut,Big East
+Z03,Michigan State,Big Ten
+Z04,Kansas,Big 12
+Z05,St. John's (NY),Big East
+Z06,Louisville,ACC
+Z07,UCLA,Big Ten
+Z08,Ohio State,Big Ten
+Z09,TCU,Big 12
+Z10,UCF,Big 12
+Z11,South Florida,AAC
+Z12,Northern Iowa,MVC
+Z13,California Baptist,WAC
+Z14,North Dakota State,Summit
+Z15,Furman,SoCon
+Z16,Siena,MAAC
+W01,Arizona,Big 12
+W02,Purdue,Big Ten
+W03,Gonzaga,WCC
+W04,Arkansas,SEC
+W05,Wisconsin,Big Ten
+W06,Brigham Young,Big 12
+W07,Miami (FL),ACC
+W08,Villanova,Big East
+W09,Utah State,MWC
+W10,Missouri,SEC
+W11a,Texas,Big 12
+W11b,North Carolina State,ACC
+W12,High Point,Big South
+W13,Hawaii,Big West
+W14,Kennesaw State,ASUN
+W15,Queens (NC),ASUN
+W16,Long Island University,ASUN
+X01,Michigan,Big Ten
+X02,Iowa State,Big 12
+X03,Virginia,ACC
+X04,Alabama,SEC
+X05,Texas Tech,Big 12
+X06,Tennessee,SEC
+X07,Kentucky,SEC
+X08,Georgia,SEC
+X09,Saint Louis,A-10
+X10,Santa Clara,WCC
+X11a,Miami (OH),MAC
+X11b,Southern Methodist,AAC
+X12,Akron,MAC
+X13,Hofstra,CAA
+X14,Wright State,Horizon
+X15,Tennessee State,OVC
+X16a,UMBC,America East
+X16b,Howard,MEAC
+Y01,Florida,SEC
+Y02,Houston,Big 12
+Y03,Illinois,Big Ten
+Y04,Nebraska,Big Ten
+Y05,Vanderbilt,SEC
+Y06,North Carolina,ACC
+Y07,Saint Mary's (CA),WCC
+Y08,Clemson,ACC
+Y09,Iowa,Big Ten
+Y10,Texas A&M,SEC
+Y11,Virginia Commonwealth,A-10
+Y12,McNeese State,Southland
+Y13,Troy,Sun Belt
+Y14,Pennsylvania,Ivy
+Y15,Idaho,Big Sky
+Y16a,Prairie View A&M,SWAC
+Y16b,Lehigh,Patriot

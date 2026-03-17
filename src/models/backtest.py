@@ -76,18 +76,27 @@ def backtest_tournament(
     probs = model.predict_proba(X_in)[:, 1]
     preds = (probs >= 0.5).astype(int)
 
-    # Build games DataFrame
-    games_df = tourney_games[
-        ["game_id", "season", "day_num", "tournament_round",
-         "team_A_id", "team_B_id", "seed_A", "seed_B", TARGET_COL]
-    ].copy()
+    # Build games DataFrame — only include columns that exist
+    base_cols = ["game_id", "season", "tournament_round", "team_A_id", "team_B_id", TARGET_COL]
+    optional_cols = ["day_num", "seed_A", "seed_B", "seed_diff", "seed_upset_flag"]
+    present_cols = base_cols + [c for c in optional_cols if c in tourney_games.columns]
+    games_df = tourney_games[present_cols].copy()
     games_df["pred_prob_A"] = probs.astype("float32")
     games_df["pred_win_A"] = preds
     games_df["correct"] = (preds == y_true).astype(int)
-    games_df["is_upset"] = (
-        games_df["seed_A"].notna() & games_df["seed_B"].notna() &
-        (games_df["seed_A"] > games_df["seed_B"]) & (y_true == 1)
-    ).astype(int)
+
+    # Derive upset flag: seed_diff > 0 means team_A is the underdog (higher seed number)
+    if "seed_A" in games_df.columns and "seed_B" in games_df.columns:
+        games_df["is_upset"] = (
+            games_df["seed_A"].notna() & games_df["seed_B"].notna() &
+            (games_df["seed_A"] > games_df["seed_B"]) & (y_true == 1)
+        ).astype(int)
+    elif "seed_diff" in games_df.columns:
+        games_df["is_upset"] = (
+            (games_df["seed_diff"] > 0) & (y_true == 1)
+        ).astype(int)
+    else:
+        games_df["is_upset"] = 0
 
     # Overall metrics
     metrics = {
@@ -119,7 +128,8 @@ def backtest_tournament(
 
     # Metrics by seed matchup
     seed_rows = []
-    if games_df["seed_A"].notna().any():
+    has_seeds = "seed_A" in games_df.columns and "seed_B" in games_df.columns
+    if has_seeds and games_df["seed_A"].notna().any():
         for _, g in games_df.iterrows():
             if pd.notna(g["seed_A"]) and pd.notna(g["seed_B"]):
                 s_lo = min(int(g["seed_A"]), int(g["seed_B"]))
@@ -157,10 +167,9 @@ def backtest_tournament(
 
     # Upset analysis: games where underdog actually won
     upsets = games_df[games_df["is_upset"] == 1].copy()
-    upset_analysis = upsets[[
-        "tournament_round", "seed_A", "seed_B", "pred_prob_A",
-        "team_A_id", "team_B_id", TARGET_COL
-    ]].copy()
+    upset_cols = ["tournament_round", "pred_prob_A", "team_A_id", "team_B_id", TARGET_COL]
+    upset_cols += [c for c in ["seed_A", "seed_B"] if c in games_df.columns]
+    upset_analysis = upsets[upset_cols].copy()
 
     return {
         "year": year,

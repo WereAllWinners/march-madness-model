@@ -98,7 +98,7 @@ if "torvik_current" not in st.session_state:
 
 # Execute the selected page
 try:
-    exec(open(page_file).read())
+    exec(open(page_file, encoding="utf-8").read())
 except FileNotFoundError:
     st.error(f"Page not found: {page_file}")
 except Exception as e:

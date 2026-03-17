@@ -7,7 +7,12 @@ Pre-Selection Sunday (March 15):
 
 Post-Selection Sunday:
   Loads actual seeds from data/raw/manual/seeds_2026.csv
-  or from Kaggle MNCAATourneySeeds.csv (2026 row once added).
+  Required columns:
+    Seed      — region code + 2-digit seed, e.g. "W01", "X12", "Y11a" (a/b for play-in)
+                Region codes: W=West, X=Midwest, Y=South, Z=East
+    team_name — canonical team name matching the crosswalk (e.g. "Duke", "UConn")
+  Optional:
+    conf      — conference abbreviation (e.g. "ACC", "Big Ten")
 """
 
 from __future__ import annotations
@@ -179,59 +184,83 @@ def _teams_from_seeds(
     seeds_df: pd.DataFrame,
     torvik_df: pd.DataFrame | None,
 ) -> list[Team]:
-    """Builds Team objects from actual seed data."""
-    from src.ingestion.kaggle_loader import load_teams
+    """
+    Builds Team objects from seeds_2026.csv.
+
+    Expected CSV columns:
+      Seed      — e.g. "W01", "X12a" (region + 2-digit seed + optional play-in letter)
+      team_name — canonical name matching crosswalk (e.g. "Duke", "UConn")
+      conf      — optional conference abbreviation
+    """
+    from src.processing.crosswalk import load_crosswalk, clean_stats_name
+    from src.features.engineer import load_feature_matrix
+
+    # Build name → team_id lookup from crosswalk
     try:
-        teams_lookup = load_teams().set_index("kaggle_id")["kaggle_name"].to_dict()
-    except Exception:
-        teams_lookup = {}
+        cw = load_crosswalk()
+        name_to_id = dict(zip(cw["canonical_name"], cw["team_id"]))
+    except Exception as e:
+        logger.warning(f"Could not load crosswalk: {e}")
+        name_to_id = {}
 
-    # Build Torvik lookup
-    torvik_lookup: dict[int, dict] = {}
-    if torvik_df is not None:
-        from src.processing.crosswalk import load_crosswalk
-        try:
-            cw = load_crosswalk()
-            torvik_merged = torvik_df.merge(
-                cw[["torvik_name", "kaggle_id"]].dropna(),
-                on="torvik_name", how="left"
-            )
-            torvik_merged["kaggle_id"] = torvik_merged["kaggle_id"].astype("Int32")
-            for _, row in torvik_merged.iterrows():
-                if pd.notna(row.get("kaggle_id")):
-                    torvik_lookup[int(row["kaggle_id"])] = row.to_dict()
-        except Exception as e:
-            logger.warning(f"Could not load Torvik data for bracket: {e}")
+    # Build team_id → 2026 stats lookup from feature matrix
+    stats_lookup: dict[int, dict] = {}
+    try:
+        fm = load_feature_matrix()
+        season_stats = fm[fm["season"] == LIVE_SEASON].copy() if "season" in fm.columns else pd.DataFrame()
+        for col in ("team_A_id", "team_B_id"):
+            if col in season_stats.columns:
+                for _, row in season_stats.drop_duplicates(col).iterrows():
+                    tid = row.get(col)
+                    if pd.notna(tid):
+                        stats_lookup.setdefault(int(tid), row.to_dict())
+    except Exception as e:
+        logger.warning(f"Could not load feature matrix for stats: {e}")
 
+    region_map = {"W": "West", "X": "Midwest", "Y": "South", "Z": "East"}
     teams = []
-    for _, row in seeds_df.iterrows():
-        seed_str = row.get("Seed", "")
-        kaggle_id = int(row.get("kaggle_id", row.get("TeamID", 0)))
-
+    for i, row in seeds_df.iterrows():
+        seed_str = str(row.get("Seed", "")).strip()
         if len(seed_str) < 3:
             continue
-        region_code = seed_str[0]
+
+        region_code = seed_str[0].upper()
         seed_num = int(seed_str[1:3])
         play_in = len(seed_str) > 3
-
-        region_map = {"W": "West", "X": "Midwest", "Y": "South", "Z": "East"}
         region = region_map.get(region_code, region_code)
 
-        torvik_info = torvik_lookup.get(kaggle_id, {})
-        name = teams_lookup.get(kaggle_id, torvik_info.get("torvik_name", f"Team{kaggle_id}"))
+        # Resolve team name → team_id via crosswalk
+        raw_name = str(row.get("team_name", "")).strip()
+        canonical = clean_stats_name(raw_name)
+        team_id = name_to_id.get(canonical) or name_to_id.get(raw_name)
 
-        net_rtg = float(torvik_info.get("AdjO", 100) or 100) - float(torvik_info.get("AdjD", 100) or 100)
-        rank = int(torvik_info.get("rank", 0) or 0)
+        if team_id is None:
+            # Fuzzy fallback: find closest canonical name
+            from rapidfuzz import process as rfp
+            match = rfp.extractOne(canonical, list(name_to_id.keys()), score_cutoff=80)
+            if match:
+                team_id = name_to_id[match[0]]
+                logger.debug(f"Fuzzy matched '{raw_name}' → '{match[0]}' (score {match[1]:.0f})")
+            else:
+                logger.warning(f"Could not match team '{raw_name}' — assigning placeholder ID {i}")
+                team_id = -(i + 1)
+
+        team_id = int(team_id)
+        stats = stats_lookup.get(team_id, {})
+
+        adj_o = float(stats.get("AdjO_A", stats.get("AdjO", 100)) or 100)
+        adj_d = float(stats.get("AdjD_A", stats.get("AdjD", 100)) or 100)
+        net_rtg = adj_o - adj_d
 
         teams.append(Team(
-            kaggle_id=kaggle_id,
-            name=name,
+            kaggle_id=team_id,
+            name=canonical or raw_name,
             seed=seed_num,
             region=region,
             play_in=play_in,
-            torvik_rank=rank,
+            torvik_rank=0,
             adj_net_rtg=round(net_rtg, 2),
-            conf=str(torvik_info.get("conf", "")),
+            conf=str(row.get("conf", "")),
         ))
 
     return teams
