@@ -18,7 +18,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from config import (
     N_SIMULATIONS, RANDOM_SEED, ROUND_ORDER, ROUND_POINTS,
-    FEATURES_DIR, LIVE_SEASON, FEATURE_COLS,
+    FEATURES_DIR, LIVE_SEASON, FEATURE_COLS, SPORTS_REF_DIR, PROCESSED_DIR,
 )
 
 logger = logging.getLogger(__name__)
@@ -255,30 +255,42 @@ def _get_team_stats_2026(
 ) -> dict[int, dict]:
     """
     Extracts current season team-level stats for tournament teams.
+    Uses Sports-Reference advanced stats (always available) merged with
+    style clusters. Falls back to empty dict on any error.
     Returns dict: team_id → stats dict.
     """
-    from src.ingestion.torvik import load_all_seasons
-    from src.processing.crosswalk import load_crosswalk, clean_stats_name
-
     try:
-        torvik_df = load_all_seasons([LIVE_SEASON])
-        cw = load_crosswalk()
-        # Match torvik_name → canonical_name → team_id
-        torvik_df["canonical_name"] = torvik_df["torvik_name"].apply(clean_stats_name)
-        torvik_df = torvik_df.merge(
-            cw[["canonical_name", "team_id"]],
-            on="canonical_name", how="left"
+        sr_path = SPORTS_REF_DIR / f"adv_stats_{LIVE_SEASON}.parquet"
+        cw_path = PROCESSED_DIR / "team_id_crosswalk.parquet"
+        sc_path = FEATURES_DIR / "style_clusters.parquet"
+
+        sr_df = pd.read_parquet(sr_path)
+        cw = pd.read_parquet(cw_path)
+
+        # SR uses "torvik_name" column for the team name (historical naming)
+        sr_df = sr_df.merge(
+            cw[["canonical_name", "team_id"]].rename(columns={"canonical_name": "torvik_name"}),
+            on="torvik_name", how="left"
         )
-        torvik_df["team_id"] = torvik_df["team_id"].astype("Int32")
+        sr_df["team_id"] = sr_df["team_id"].astype("Int32")
+
+        # Merge style clusters
+        if sc_path.exists():
+            sc_df = pd.read_parquet(sc_path)
+            sc_2026 = sc_df[sc_df["year"] == LIVE_SEASON][["torvik_name", "style_cluster"]]
+            sr_df = sr_df.merge(sc_2026, on="torvik_name", how="left")
+            sr_df["style_cluster"] = sr_df["style_cluster"].fillna(0.0)
 
         stats = {}
-        for _, row in torvik_df.iterrows():
+        for _, row in sr_df.iterrows():
             tid = row.get("team_id")
             if pd.notna(tid):
                 stats[int(tid)] = row.to_dict()
+
+        logger.info(f"Loaded SR stats for {len(stats)} teams (season {LIVE_SEASON})")
         return stats
     except Exception as e:
-        logger.warning(f"Could not load 2026 Torvik stats: {e}")
+        logger.warning(f"Could not load {LIVE_SEASON} SR stats: {e}")
         return {}
 
 
